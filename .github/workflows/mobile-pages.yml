@@ -18,7 +18,9 @@ jobs:
       name: github-pages
       url: ${{ steps.d.outputs.page_url }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
       - run: node mobile/core.test.js
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
