@@ -66,3 +66,10 @@ a{color:var(--accent)}
 .btns{display:flex;gap:8px;margin-top:10px}.btns .btn{flex:1;min-height:44px;padding:0 10px;font-size:14px}
 .field textarea.bulk{min-height:200px}
 .tabs button span{white-space:nowrap}
+.group{padding:0}
+.ghead{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;padding:14px;background:none;border:0;color:inherit;font:inherit;text-align:left;min-height:56px}
+.gbody{padding:0 10px 10px}
+.subrow{display:flex;gap:8px;align-items:stretch}.subrow .card{flex:1;min-width:0;margin-bottom:8px}
+.xbtn{flex:none;width:44px;margin-bottom:8px;border:1px solid var(--line);background:var(--card);color:var(--warn);border-radius:14px;font-size:18px}
+.card.sel{border-color:var(--accent);box-shadow:inset 0 0 0 2px var(--accent)}
+.modal{position:fixed;inset:0;z-index:30;display:flex;align-items:center;justify-content:center;padding:var(--g);background:rgba(0,0,0,.5)}.modal>div{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:18px;max-width:360px;width:100%}.modal p{margin:0 0 4px}
