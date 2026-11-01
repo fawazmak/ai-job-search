@@ -75,7 +75,7 @@
     }));
     view.appendChild(chips);
     var list = visible();
-    if (!S.items.length) { view.appendChild(empty("No applications yet", "Import job_search_tracker.csv from your laptop, or add one.", { t: "Import CSV", fn: function () { $("file").click(); } })); return; }
+    if (!S.items.length) { view.appendChild(empty("No applications yet", "Import job_search_tracker.csv from your laptop, or add one.", { t: "Import CSV", fn: function () { $("file").click(); } })); view.appendChild(el("button", { class: "btn block", text: "Bulk add from a list", onclick: openBulk })); return; }
     if (!list.length) { view.appendChild(empty("Nothing here", "Try another filter or search.")); return; }
     list.forEach(function (i) { view.appendChild(card(i)); });
   }
@@ -114,6 +114,10 @@
   }
 
   function renderData() {
+    view.appendChild(el("h3", { text: "Add jobs" }));
+    view.appendChild(el("button", { class: "btn primary block", text: "Bulk add from a list", onclick: openBulk }));
+    view.appendChild(el("h3", { text: "My documents" }));
+    var dbox = el("div", {}); view.appendChild(dbox); renderDocs(dbox);
     view.appendChild(el("h3", { text: "Tracker file" }));
     view.appendChild(el("p", { class: "note", text: "Data stays on this device. Move it with job_search_tracker.csv, same 14 columns as the desktop workflow." }));
     view.appendChild(el("button", { class: "btn primary block", text: "Import CSV", onclick: function () { $("file").click(); } }));
@@ -125,6 +129,121 @@
   }
 
   function csvFile() { return new File([Core.toCSV(S.items)], "job_search_tracker.csv", { type: "text/csv" }); }
+  function copyText(txt, msg) {
+    function fallback() {
+      var ta = el("textarea", { style: "position:fixed;top:0;left:0;opacity:0" }); ta.value = txt; document.body.appendChild(ta); ta.focus(); ta.select();
+      var ok = false; try { ok = document.execCommand("copy"); } catch (e) {}
+      ta.remove(); toast(ok ? msg : "Copy failed");
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(txt).then(function () { toast(msg); }, fallback); else fallback();
+  }
+  function applyCmd(i) { return i.source ? "/apply " + i.source : ""; }
+
+  function renderQueue() {
+    var q = S.items.filter(function (i) { return i.status === "drafted"; });
+    view.appendChild(el("p", { class: "note", text: "Paste each command into Claude Code on your laptop. It tailors your CV and cover letter, and you review before sending." }));
+    if (!q.length) { view.appendChild(empty("Queue is empty", "Jobs you add land here as Drafted.", { t: "Bulk add from a list", fn: openBulk })); return; }
+    var ready = q.filter(function (i) { return applyCmd(i); });
+    if (ready.length) view.appendChild(el("button", { class: "btn primary block", style: "margin-bottom:12px", text: "Copy all " + ready.length + " commands", onclick: function () { copyText(ready.map(applyCmd).join("\n"), "Copied " + ready.length + " commands"); } }));
+    q.forEach(function (i) {
+      var c = applyCmd(i);
+      view.appendChild(el("div", { class: "card" }, [
+        el("div", { class: "co", text: i.company }), el("div", { class: "role", text: i.role || "" }),
+        c ? el("div", { class: "cmd", text: c }) : el("div", { class: "cmd", text: "No posting link. Open the job and add its link." }),
+        el("div", { class: "btns" }, [
+          c ? el("button", { class: "btn primary", text: "Copy", onclick: function () { copyText(c, "Copied"); } }) : el("button", { class: "btn primary", text: "Add link", onclick: function () { openSheet(i.id); } }),
+          el("button", { class: "btn", text: "Applied", onclick: function () { i.status = "applied"; i.date = today(); save(); render(); toast("Marked applied"); } }),
+          el("button", { class: "btn", text: "Edit", onclick: function () { openSheet(i.id); } })
+        ])
+      ]));
+    });
+  }
+
+  function openBulk() {
+    var sheet = $("sheet"); sheet.textContent = "";
+    var ta = el("textarea", { id: "bulk", class: "bulk", placeholder: "Acme | ML Engineer | https://acme.com/jobs/1\nBeta - Data Scientist - https://beta.com/jobs/2\nhttps://gamma.com/careers/3" });
+    var cnt = el("p", { class: "note" });
+    function upd() { cnt.textContent = Core.parseBulk(ta.value).length + " jobs found"; }
+    ta.addEventListener("input", upd); upd();
+    [el("div", { class: "grab" }), el("h2", { id: "sheetTitle", text: "Bulk add" }),
+      el("p", { class: "note", text: "One job per line: Company | Role | Link. A link alone works. Lists from Claude or ChatGPT work. Added as Drafted." }),
+      field("Job list", ta), cnt,
+      el("button", { class: "btn primary block", text: "Add to queue", onclick: function () {
+        var rows = Core.parseBulk(ta.value), seen = {}, added = 0;
+        S.items.forEach(function (i) { seen[(i.company + "|" + i.role + "|" + i.source).toLowerCase()] = 1; });
+        rows.forEach(function (r) {
+          var k = (r.company + "|" + r.role + "|" + r.source).toLowerCase();
+          if (seen[k]) return; seen[k] = 1; added++;
+          S.items.unshift({ id: uid(), date: today(), company: r.company, sector: "", role: r.role, role_type: "", channel: "", status: "drafted", contact_person: "", fit_rating: "", notes: "", cv_file: "", cover_letter_file: "", source: r.source, deadline: "" });
+        });
+        if (!added) { toast("Nothing new to add"); return; }
+        save(); closeSheet(); S.tab = "queue"; render(); toast("Added " + added + (rows.length - added ? ", skipped " + (rows.length - added) + " duplicates" : ""));
+      } }),
+      el("button", { class: "btn block", text: "Cancel", onclick: closeSheet })].forEach(function (k) { sheet.appendChild(k); });
+    sheet.hidden = false; $("scrim").hidden = false; document.body.style.overflow = "hidden"; sheet.scrollTop = 0; ta.focus();
+  }
+
+  function idb(cb) {
+    try {
+      var r = indexedDB.open("ajs", 1);
+      r.onupgradeneeded = function () { r.result.createObjectStore("docs", { keyPath: "id" }); };
+      r.onsuccess = function () { cb(null, r.result); };
+      r.onerror = function () { cb(r.error || true); };
+    } catch (e) { cb(e); }
+  }
+  function docsAll(cb) {
+    idb(function (err, db) {
+      if (err) return cb([]);
+      var q = db.transaction("docs").objectStore("docs").getAll();
+      q.onsuccess = function () { cb(q.result || []); }; q.onerror = function () { cb([]); };
+    });
+  }
+  function docWrite(fn, cb) {
+    idb(function (err, db) {
+      if (err) return cb(err);
+      var tx = db.transaction("docs", "readwrite"); fn(tx.objectStore("docs"));
+      tx.oncomplete = function () { cb(); }; tx.onerror = function () { cb(tx.error || true); }; tx.onabort = tx.onerror;
+    });
+  }
+  function fmtSize(n) { return n > 1048576 ? (n / 1048576).toFixed(1) + " MB" : Math.max(1, Math.round(n / 1024)) + " KB"; }
+  function pickDoc(kind, box) {
+    var inp = el("input", { type: "file", accept: ".pdf,.doc,.docx,.pages,.png,.jpg,.jpeg,.zip,.txt,.md", style: "display:none" });
+    inp.addEventListener("change", function () {
+      var f = inp.files[0]; inp.remove();
+      if (!f) return;
+      if (f.size > 25 * 1048576) { toast("File over 25 MB"); return; }
+      docWrite(function (s) { s.put({ id: uid(), name: f.name, kind: kind, size: f.size, type: f.type, added: today(), blob: f }); }, function (err) {
+        if (err) toast("Could not store file"); else { toast("Saved " + f.name); renderDocs(box); }
+      });
+    });
+    document.body.appendChild(inp); inp.click();
+  }
+  function renderDocs(box) {
+    docsAll(function (list) {
+      if (!box.isConnected) return;
+      box.textContent = "";
+      box.appendChild(el("p", { class: "note", text: "Stored on this phone only, never uploaded. Claude Code reads the originals from documents/ on your laptop." }));
+      box.appendChild(el("div", { class: "btns" }, [
+        el("button", { class: "btn primary", text: "Add CV", onclick: function () { pickDoc("CV", box); } }),
+        el("button", { class: "btn primary", text: "Add portfolio", onclick: function () { pickDoc("Portfolio", box); } })
+      ]));
+      list.sort(function (a, b) { return (b.added || "").localeCompare(a.added || ""); }).forEach(function (d) {
+        box.appendChild(el("div", { class: "card" }, [
+          el("div", { class: "row" }, [el("div", { class: "co", text: d.name }), el("span", { class: "badge", text: d.kind })]),
+          el("div", { class: "role", text: fmtSize(d.size) + " · " + d.added }),
+          el("div", { class: "btns" }, [
+            el("button", { class: "btn", text: "Open", onclick: function () {
+              var a = el("a", { href: URL.createObjectURL(d.blob), target: "_blank", rel: "noopener" }); document.body.appendChild(a); a.click(); a.remove();
+            } }),
+            el("button", { class: "btn danger", text: "Remove", onclick: function () {
+              ask("Remove " + d.name + " from this phone?", "Remove", function () { docWrite(function (s) { s.delete(d.id); }, function () { renderDocs(box); }); });
+            } })
+          ])
+        ]));
+      });
+    });
+  }
+
   function exportCSV() {
     var f = csvFile(), a = el("a", { href: URL.createObjectURL(f), download: f.name });
     document.body.appendChild(a); a.click(); a.remove(); setTimeout(function () { URL.revokeObjectURL(a.href); }, 4000);
@@ -186,6 +305,7 @@
       save(); closeSheet(); render(); toast(msg); return true;
     }
     sheet.appendChild(el("button", { class: "btn primary block", text: "Save", onclick: function () { collect(); commit("Saved"); } }));
+    if (!it) sheet.appendChild(el("button", { class: "btn block", text: "Paste a list instead", onclick: openBulk }));
     if (it) {
       sheet.appendChild(el("button", { class: "btn block", text: "Log follow-up sent today (" + Core.followups(d) + " so far)", onclick: function () {
         collect(); d.notes = (d.notes ? d.notes + "\n" : "") + "followed up " + today(); commit("Follow-up logged");
@@ -215,13 +335,13 @@
   $("q").addEventListener("input", function (e) { S.q = e.target.value; if (S.tab !== "pipeline") S.tab = "pipeline"; render(); });
 
   function render() {
-    var names = { pipeline: "Pipeline", deadlines: "Deadlines", stats: "Stats", data: "Data" };
+    var names = { pipeline: "Pipeline", deadlines: "Deadlines", queue: "Apply queue", stats: "Stats", data: "Data" };
     $("title").textContent = names[S.tab];
     Array.prototype.forEach.call(document.querySelectorAll("#tabs button"), function (b) { b.classList.toggle("on", b.dataset.tab === S.tab); });
     $("fab").hidden = S.tab === "data" || S.tab === "stats";
     $("searchToggle").hidden = S.tab !== "pipeline";
     view.textContent = "";
-    ({ pipeline: renderPipeline, deadlines: renderDeadlines, stats: renderStats, data: renderData })[S.tab]();
+    ({ pipeline: renderPipeline, deadlines: renderDeadlines, queue: renderQueue, stats: renderStats, data: renderData })[S.tab]();
   }
 
   render();
