@@ -121,6 +121,27 @@
     };
   }
 
-  var api = { HEADER: HEADER, STATUSES: STATUSES, FINAL: FINAL, parseCSV: parseCSV, fromCSV: fromCSV, toCSV: toCSV, normStatus: normStatus, isFinal: isFinal, parseDate: parseDate, deadlineInfo: deadlineInfo, followups: followups, daysQuiet: daysQuiet, stats: stats };
+  function parseBulk(text) {
+    var out = [];
+    String(text || "").split(/\r?\n/).forEach(function (line) {
+      line = line.replace(/^\s*(?:[-*\u2022]|\d+[.)])\s+/, "").trim();
+      if (!line) return;
+      var url = (line.match(/https?:\/\/[^\s|,)>\]]+/) || [""])[0];
+      var rest = line.replace(url, "").replace(/[()<>\[\]]/g, "").replace(/^[\s|\-\u2013\u2014]+|[\s|\-\u2013\u2014]+$/g, "");
+      var parts = rest.split(/\s*\|\s*|\t|\s+[-\u2013\u2014]\s+/).map(function (p) { return p.trim(); }).filter(Boolean);
+      var company = "", role = "";
+      if (parts.length >= 2) { company = parts[0]; role = parts[1]; }
+      else if (parts.length === 1) {
+        var m = /^(.+?)\s+at\s+(.+)$/i.exec(parts[0]);
+        if (m) { role = m[1]; company = m[2]; } else company = parts[0];
+      }
+      if (!company && url) { try { company = new URL(url).hostname.replace(/^www\./, ""); } catch (e) {} }
+      if (/^-+$/.test(company) || /^(company|employer)$/i.test(company)) return;
+      if (company) out.push({ company: company, role: role, source: url });
+    });
+    return out;
+  }
+
+  var api = { parseBulk: parseBulk, HEADER: HEADER, STATUSES: STATUSES, FINAL: FINAL, parseCSV: parseCSV, fromCSV: fromCSV, toCSV: toCSV, normStatus: normStatus, isFinal: isFinal, parseDate: parseDate, deadlineInfo: deadlineInfo, followups: followups, daysQuiet: daysQuiet, stats: stats };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.Core = api;
 })(typeof self !== "undefined" ? self : this);
