@@ -2,7 +2,7 @@
   var KEY = "ajs.tracker.v1";
   var LABEL = { drafted: "Drafted", applied: "Applied", interview: "Interview", offer: "Offer", hired: "Hired", rejected: "Rejected", no_response: "No response", offer_declined: "Offer declined", withdrawn: "Withdrawn" };
   var FILTERS = ["open", "all", "drafted", "applied", "interview", "offer", "closed"];
-  var S = { tab: "pipeline", filter: "open", q: "", items: load() };
+  var S = { tab: "pipeline", filter: "open", q: "", items: load(), sel: null, open: {} };
   var $ = function (id) { return document.getElementById(id); };
   var view = $("view");
 
@@ -21,6 +21,12 @@
     });
     (kids || []).forEach(function (c) { if (c) n.appendChild(typeof c === "string" ? document.createTextNode(c) : c); });
     return n;
+  }
+  function ask(msg, label, fn) {
+    var m = el("div", { class: "modal", role: "alertdialog" }, [el("div", {}, [el("p", { text: msg }),
+      el("button", { class: "btn danger block", text: label, onclick: function () { m.remove(); fn(); } }),
+      el("button", { class: "btn block", text: "Cancel", onclick: function () { m.remove(); } })])]);
+    document.body.appendChild(m);
   }
   function toast(m) { var t = $("toast"); t.textContent = m; t.classList.add("show"); clearTimeout(toast.t); toast.t = setTimeout(function () { t.classList.remove("show"); }, 2200); }
   function today() { var d = new Date(); return d.getFullYear() + "-" + ("0" + (d.getMonth() + 1)).slice(-2) + "-" + ("0" + d.getDate()).slice(-2); }
@@ -48,14 +54,16 @@
     return el("span", { class: "badge" + (d.level === "ok" ? " mute" : " warn"), text: t });
   }
 
-  function card(it) {
+  function card(it, o) {
+    o = o || {};
     var q = Core.daysQuiet(it);
-    var b = el("button", { class: "card", onclick: function () { openSheet(it.id); } }, [
+    var b = el("button", { class: "card" + (o.sel ? " sel" : ""), onclick: o.click || function () { openSheet(it.id); } }, [
       el("div", { class: "row" }, [
         el("div", {}, [el("div", { class: "co", text: it.company || "Untitled" }), el("div", { class: "role", text: it.role || "" })]),
         it.fit_rating ? el("span", { class: "badge mute", text: it.fit_rating }) : null
       ]),
       el("div", { class: "meta" }, [
+        o.sel != null ? el("span", { class: "badge" + (o.sel ? "" : " mute"), text: o.sel ? "Selected" : "Tap to select" }) : null,
         el("span", { class: "badge", text: LABEL[it.status] || it.status || "Unknown" }),
         dlBadge(it),
         q != null && q >= 10 ? el("span", { class: "badge warn", text: q + "d quiet" }) : null,
@@ -75,9 +83,60 @@
     }));
     view.appendChild(chips);
     var list = visible();
+    if (list.length && !S.sel) chips.appendChild(el("button", { class: "chip", text: "Select", onclick: function () { S.sel = {}; render(); } }));
     if (!S.items.length) { view.appendChild(empty("No applications yet", "Import job_search_tracker.csv from your laptop, or add one.", { t: "Import CSV", fn: function () { $("file").click(); } })); view.appendChild(el("button", { class: "btn block", text: "Bulk add from a list", onclick: openBulk })); return; }
     if (!list.length) { view.appendChild(empty("Nothing here", "Try another filter or search.")); return; }
-    list.forEach(function (i) { view.appendChild(card(i)); });
+    if (S.sel) { renderSelect(list); return; }
+    var seen = {}, rows = [];
+    list.forEach(function (i) {
+      if (!i.batch) { rows.push({ i: i }); return; }
+      if (!seen[i.batch]) { seen[i.batch] = { batch: i.batch, name: i.batchName || "List", items: [] }; rows.push({ g: seen[i.batch] }); }
+      seen[i.batch].items.push(i);
+    });
+    rows.forEach(function (r) { view.appendChild(r.i ? card(r.i) : groupCard(r.g)); });
+  }
+
+  function removeItem(i) {
+    S.items = S.items.filter(function (x) { return x.id !== i.id; }); save(); render(); toast("Removed " + (i.company || "job"));
+  }
+  function groupCard(g) {
+    var open = !!S.open[g.batch];
+    var total = S.items.filter(function (x) { return x.batch === g.batch; }).length;
+    var kids = [el("button", { class: "ghead", "aria-expanded": open ? "true" : "false", onclick: function () { S.open[g.batch] = !open; render(); } }, [
+      el("div", {}, [el("div", { class: "co", text: g.name }), el("div", { class: "role", text: g.items.length + (g.items.length !== total ? " of " + total : "") + " jobs" })]),
+      el("span", { class: "badge", text: open ? "Hide" : "Show" })
+    ])];
+    if (open) {
+      var body = el("div", { class: "gbody" }, g.items.map(function (i) {
+        return el("div", { class: "subrow" }, [card(i), el("button", { class: "xbtn", "aria-label": "Remove " + (i.company || "job"), text: "\u2715", onclick: function () { removeItem(i); } })]);
+      }));
+      body.appendChild(el("button", { class: "btn danger block", text: "Delete whole list (" + total + ")", onclick: function () {
+        ask("Delete this list and all " + total + " jobs in it?", "Delete list", function () {
+          S.items = S.items.filter(function (x) { return x.batch !== g.batch; }); delete S.open[g.batch]; save(); render(); toast("List deleted");
+        });
+      } }));
+      kids.push(body);
+    }
+    return el("div", { class: "card group" }, kids);
+  }
+  function renderSelect(list) {
+    var ids = Object.keys(S.sel), n = ids.length;
+    function chosen() { return S.items.filter(function (x) { return S.sel[x.id]; }); }
+    view.appendChild(el("div", { class: "btns", style: "margin:0 0 12px" }, [
+      el("button", { class: "btn", text: "Cancel", onclick: function () { S.sel = null; render(); } }),
+      el("button", { class: "btn", text: "Group (" + n + ")", onclick: function () {
+        var c = chosen(); if (c.length < 2) { toast("Select 2 or more jobs"); return; }
+        var b = uid(), d = new Date(), nm = "List " + today() + " " + ("0" + d.getHours()).slice(-2) + ":" + ("0" + d.getMinutes()).slice(-2);
+        c.forEach(function (x) { x.batch = b; x.batchName = nm; }); S.open[b] = true; S.sel = null; save(); render(); toast("Grouped " + c.length);
+      } }),
+      el("button", { class: "btn danger", text: "Delete (" + n + ")", onclick: function () {
+        var c = chosen(); if (!c.length) { toast("Nothing selected"); return; }
+        ask("Delete " + c.length + " selected jobs?", "Delete", function () {
+          S.items = S.items.filter(function (x) { return !S.sel[x.id]; }); S.sel = null; save(); render(); toast("Deleted " + c.length);
+        });
+      } })
+    ]));
+    list.forEach(function (i) { view.appendChild(card(i, { sel: !!S.sel[i.id], click: function () { if (S.sel[i.id]) delete S.sel[i.id]; else S.sel[i.id] = 1; render(); } })); });
   }
 
   function renderDeadlines() {
@@ -169,12 +228,12 @@
       el("p", { class: "note", text: "One job per line: Company | Role | Link. A link alone works. Lists from Claude or ChatGPT work. Added as Drafted." }),
       field("Job list", ta), cnt,
       el("button", { class: "btn primary block", text: "Add to queue", onclick: function () {
-        var rows = Core.parseBulk(ta.value), seen = {}, added = 0;
+        var rows = Core.parseBulk(ta.value), seen = {}, added = 0, bid = uid(), dd = new Date(), bname = "List " + today() + " " + ("0" + dd.getHours()).slice(-2) + ":" + ("0" + dd.getMinutes()).slice(-2);
         S.items.forEach(function (i) { seen[(i.company + "|" + i.role + "|" + i.source).toLowerCase()] = 1; });
         rows.forEach(function (r) {
           var k = (r.company + "|" + r.role + "|" + r.source).toLowerCase();
           if (seen[k]) return; seen[k] = 1; added++;
-          S.items.unshift({ id: uid(), date: today(), company: r.company, sector: "", role: r.role, role_type: "", channel: "", status: "drafted", contact_person: "", fit_rating: "", notes: "", cv_file: "", cover_letter_file: "", source: r.source, deadline: "" });
+          S.items.unshift({ id: uid(), date: today(), company: r.company, sector: "", role: r.role, role_type: "", channel: "", status: "drafted", contact_person: "", fit_rating: "", notes: "", cv_file: "", cover_letter_file: "", source: r.source, deadline: "", batch: bid, batchName: bname });
         });
         if (!added) { toast("Nothing new to add"); return; }
         save(); closeSheet(); S.tab = "queue"; render(); toast("Added " + added + (rows.length - added ? ", skipped " + (rows.length - added) + " duplicates" : ""));
@@ -326,7 +385,7 @@
 
   $("tabs").addEventListener("click", function (e) {
     var b = e.target.closest("button[data-tab]"); if (!b) return;
-    S.tab = b.dataset.tab; render(); window.scrollTo(0, 0);
+    S.tab = b.dataset.tab; S.sel = null; render(); window.scrollTo(0, 0);
   });
   $("searchToggle").addEventListener("click", function () {
     var bar = $("searchbar"); bar.hidden = !bar.hidden;
