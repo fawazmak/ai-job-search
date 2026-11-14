@@ -79,7 +79,7 @@
 
   function renderPipeline() {
     var chips = el("div", { class: "chips", role: "tablist" }, FILTERS.map(function (f) {
-      return el("button", { class: "chip" + (S.filter === f ? " on" : ""), text: f[0].toUpperCase() + f.slice(1), onclick: function () { S.filter = f; render(); } });
+      return el("button", { class: "chip" + (S.filter === f ? " on" : ""), "aria-pressed": S.filter === f ? "true" : "false", text: f[0].toUpperCase() + f.slice(1), onclick: function () { S.filter = f; render(); } });
     }));
     view.appendChild(chips);
     var list = visible();

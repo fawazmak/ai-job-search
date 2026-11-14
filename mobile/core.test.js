@@ -43,4 +43,11 @@ assert.deepStrictEqual(b[1], { company: "Beta", role: "Data Scientist", source: 
 assert.deepStrictEqual(b[2], { company: "Gamma", role: "Data Analyst", source: "" });
 assert.strictEqual(b[3].company, "delta.com");
 assert.deepStrictEqual(b[4], { company: "Eps", role: "Dev", source: "" });
+const rt2 = C.fromCSV(C.toCSV([{ company: "X", status: "applied", notes: "- called HR" }]));
+assert.strictEqual(rt2[0].notes, "- called HR");
+assert.strictEqual(C.toCSV(rt2).split("\n")[1].includes("'- called HR"), true);
+assert.strictEqual(C.parseDate("2026-02-30"), null);
+assert.strictEqual(C.parseDate("2026-13-45"), null);
+assert.strictEqual(C.deadlineInfo({ deadline: "2026-02-30", status: "applied" }), null);
+assert.ok(C.parseDate("2028-02-29"));
 console.log("core ok");

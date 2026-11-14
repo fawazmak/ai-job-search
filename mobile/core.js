@@ -40,6 +40,7 @@
       HEADER.forEach(function (k) {
         var idx = head.indexOf(k);
         o[k] = idx >= 0 && rows[r][idx] != null ? rows[r][idx] : "";
+        if (/^'[=+\-@\t\r]/.test(o[k])) o[k] = o[k].slice(1);
       });
       o.status = normStatus(o.status);
       o.id = "r" + r + "_" + Math.random().toString(36).slice(2, 7);
@@ -69,7 +70,8 @@
     var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(s).trim());
     if (!m) return null;
     var d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]));
-    return isNaN(d) ? null : d;
+    if (isNaN(d) || d.getUTCMonth() !== +m[2] - 1 || d.getUTCDate() !== +m[3]) return null;
+    return d;
   }
 
   function dayDiff(a, b) { return Math.round((a - b) / 86400000); }
